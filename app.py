@@ -20,11 +20,14 @@ redis_url = os.environ.get("REDIS_URL")
 
 @app.middleware("http")
 async def check_header_timestamp(request: Request, call_next):
+    if request.url.path == "/":
+        return await call_next(request)
     timestamp = request.headers.get("X-Timestamp")
     if not timestamp:
         return JSONResponse(status_code=403, content={"message": "Forbidden"})
     timestamp = int(timestamp)
     now = int(time.time())
+    print(now)
     if now - timestamp > 300:
         return JSONResponse(status_code=403, content={"message": "Forbidden"})
     return await call_next(request)

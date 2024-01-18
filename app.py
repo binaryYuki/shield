@@ -9,10 +9,13 @@ from redis import Redis as RedisClient
 import redis as rd
 from redis.exceptions import ConnectionError
 import uvicorn
+import dotenv
+
+dotenv.load_dotenv()
 
 app = FastAPI()
 
-redis_url = xxx
+redis_url = os.environ.get("REDIS_URL")
 
 
 @app.middleware("http")

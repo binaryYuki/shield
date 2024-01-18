@@ -1,0 +1,27 @@
+{
+  "name": "nodejs-heroku",
+  "version": "1.0.1",
+  "description": "Node.js app on Heroku",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "private": true,
+    "keywords": [
+        "node",
+        "heroku"
+    ],
+    "author": "Rajesh Kumar",
+    "license": "ISC",
+    "dependencies": {
+        "express": "^4.16.4"
+    },
+    "devDependencies": {},
+    "repository": {
+        "type": "git",
+        "url": "git+"
+    },
+    "bugs": {
+        "url": ""
+    },
+}

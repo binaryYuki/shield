@@ -29,6 +29,6 @@ CMD ["systemctl", "stop", "nginx"]
 EXPOSE 80
 
 # 启动 FastAPI 应用和 Nginx
-CMD ["bash", "-c", "service nginx start && uvicorn main:app --host 0.0.0.0 --port 8080"]
+CMD ["bash", "-c", "service nginx start && uvicorn app:app --host 0.0.0.0 --port 8080"]
 
 #CMD ["gunicorn", "main:app", "--workers", "4", "--worker-class", "uvicorn.workers.UvicornWorker", "--bind", "0.0.0.0:80"]

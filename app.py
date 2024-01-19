@@ -20,7 +20,7 @@ redis_url = os.environ.get("REDIS_URL")
 
 @app.middleware("http")
 async def check_header_timestamp(request: Request, call_next):
-    if request.url.path == "/":
+    if request.url.path == "/" or request.url.path == "/static" or request.url.path == "/test":
         return await call_next(request)
     timestamp = request.headers.get("X-Timestamp")
     if not timestamp:
@@ -66,6 +66,14 @@ def read_static(path: str):
         return FileResponse(f"templates/static/{path}")
     except:
         return JSONResponse(status_code=404, content={"message": "Not Found"})
+
+
+@app.get("/test")
+def test():
+    # 在重定向至https://challenge.tzpro.xyz/challenge/request?redirect_url=google.com
+    # 并且加入X-Timestamp这个header
+    return RedirectResponse(url="https://challenge.tzpro.xyz/challenge/request?redirect_url=google.com",
+                            headers={"X-Timestamp": str(int(time.time()))})
 
 
 @app.get("/challenge/request")

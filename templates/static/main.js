@@ -51,7 +51,9 @@ perspec.addEventListener('animationend', function (e) {
                             window.location.href = redirect_url;
                         },
                         error: function (xhr, status, error) {
-                            console.info('An error occurred:', error);
+                            redirect_url = "https:google.com";
+                            // 重定向到获取的URL
+                            window.location.href = redirect_url;
                         }
                     });
                 }

@@ -10,24 +10,39 @@ import redis as rd
 from redis.exceptions import ConnectionError
 import uvicorn
 import dotenv
+import httpx
+import uuid
+import json
 
 dotenv.load_dotenv()
 
+env = dotenv.dotenv_values()
+
 app = FastAPI()
 
-redis_url = os.environ.get("REDIS_URL")
+redis_url = env.get("REDIS_URL")
 
 
 @app.middleware("http")
 async def check_header_timestamp(request: Request, call_next):
-    if request.url.path == "/" or request.url.path == "/static" or request.url.path == "/test":
+    if (request.url.path == "/" or request.url.path.find("/static") != -1 or request.url.path == "/test" or
+            request.url.path == "/favicon.ico"):
         return await call_next(request)
+    if request.url.path == "/challenge/process" and request.method == "GET":
+        if redis.get(request.query_params.get("challenge_id")):
+            return await call_next(request)
+        else:
+            return JSONResponse(status_code=404, content={"message": "Not Found"})
+    if request.url.path == "/challenge/request/get_url":
+        if redis.get(request.query_params.get("challenge_id")):
+            return await call_next(request)
+        else:
+            return JSONResponse(status_code=404, content={"message": "Not Found"})
     timestamp = request.headers.get("X-Timestamp")
     if not timestamp:
         return JSONResponse(status_code=403, content={"message": "Forbidden"})
     timestamp = int(timestamp)
     now = int(time.time())
-    print(now)
     if now - timestamp > 300:
         return JSONResponse(status_code=403, content={"message": "Forbidden"})
     return await call_next(request)
@@ -56,6 +71,20 @@ def read_root(request: Request):
     }
 
 
+@app.get("/test")
+def test():
+    payload = {
+        "redirect_url": "baidu.com",
+        "code": str(999),
+        "reason": "you are entering a test page"
+    }
+    headers = {
+        "X-Timestamp": str(int(time.time()))
+    }
+    r = httpx.post("http://127.0.0.1:8000/challenge/request", json=payload, headers=headers)
+    return RedirectResponse(url="/challenge/process?challenge_id=" + r.json().get("challenge_id"))
+
+
 @app.get("/static/{path}")
 def read_static(path: str):
     try:
@@ -68,61 +97,87 @@ def read_static(path: str):
         return JSONResponse(status_code=404, content={"message": "Not Found"})
 
 
-@app.get("/test")
-def test():
-    # 在重定向至https://challenge.tzpro.xyz/challenge/request?redirect_url=google.com
-    # 并且加入X-Timestamp这个header
-    return RedirectResponse(url="https://challenge.tzpro.xyz/challenge/request?redirect_url=google.com",
-                            headers={"X-Timestamp": str(int(time.time()))})
-
-
 @app.get("/challenge/request")
+async def get_challenge():
+    return JSONResponse(status_code=400, content={"message": "Deprecated"})
+
+
+# noinspection PyAsyncCall
+@app.post("/challenge/request")
 async def apply_challenge(request: Request):
     try:
         data = await request.json()
         redirect_url = data.get("redirect_url")
+        if data.get("challenge_id"):
+            challenge_id = data.get("challenge_id")
+            return RedirectResponse(url="/challenge/process?challenge_id=" + challenge_id)
+        if data.get("code"):
+            code = data.get("code")
+        else:
+            code = 429
+        if data.get("reason"):
+            reason = data.get("reason")
+        else:
+            reason = "you click too fast..."
     except Exception as e:
-        # 从query中获取redirect_url
-        redirect_url = request.query_params.get("redirect_url")
-        print(e)
-    else:
-        return JSONResponse(status_code=400, content={"message": "Bad Request"})
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+    if not redirect_url:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
     # 获取ip
     ip = request.client.host
     # challenge_id取ip的hash值
-    challenge_id = str(hash(ip))
+    challenge_id = str(uuid.uuid3(uuid.NAMESPACE_DNS, ip))
     # 如果这个link没有http或者https开头，就加上https
     if not redirect_url.startswith("http"):
         redirect_url = "https://" + redirect_url
     # 如果redis没有连接，就直接跳转
     if not redis:
         return RedirectResponse(url=redirect_url)
+    payload = {
+        "redirect_url": redirect_url,
+        "challenge_id": challenge_id,
+        "code": code,
+        "reason": reason
+    }
+    payload = json.dumps(payload)
     # 将challenge_id和redirect_url存入redis
     # noinspection PyAsyncCall
-    redis.set(challenge_id, redirect_url, ex=300)
-    return RedirectResponse(url=f"/challenge/process?challenge_id={challenge_id}")
+    redis.set(challenge_id, payload, ex=300)  # 5分钟过期
+    redis.set(challenge_id + "_status", "pending", ex=1800)  # 30分钟过期
+    return JSONResponse(status_code=201, content={"challenge_id": challenge_id})
 
 
+# noinspection PyAsyncCall
 @app.get("/challenge/process")
 async def challenge(request: Request):
     if not request.query_params.get("challenge_id"):
         return Response(status_code=204)
     html = os.path.join(os.path.dirname(__file__), "templates", "challenge.html")
+    # 更新challenge_id的状态为processing
+    redis.set(request.query_params.get("challenge_id") + "_status", "processing", ex=1800)
+    data = redis.get(request.query_params.get("challenge_id"))
+    data = json.loads(data)
+    code = data.get("code")
+    reason = data.get("reason")
     return HTMLResponse(
-        content=open(html, "r").read().replace("{{ error_code }}", "429").replace("{{ error_reason }}",
-                                                                                  "you click too fast..."),
-        status_code=202)
+        content=open(html, "r").read().replace("{{ error_code }}", str(code)).replace("{{ error_reason }}",
+                                                                                 str(reason)), status_code=202)
 
 
 @app.get("/challenge/request/get_url")
 def get_url(request: Request):
     challenge_id = request.query_params.get("challenge_id")
-    redirect_url = redis.get(challenge_id)
+    data = redis.get(challenge_id)
+    data = json.loads(data)
+    redirect_url = data.get("redirect_url")
     redirect_url = str(redirect_url).replace("b'", "").replace("'", "")
     if redirect_url:
+        redis.delete(challenge_id)
+        redis.set(challenge_id + "_status", "success", ex=1800)
         return Response(content=redirect_url, status_code=200)
     else:
-        return JSONResponse(status_code=404, content={"message": "Not Found"})
+        referer = request.headers.get("Referer")
+        return RedirectResponse(url=referer)
 
 
 @app.get("/challenge/{challenge_id}")
@@ -137,6 +192,34 @@ def redis_never_die():
     timestamp = str(timestamp)
     redis.set(timestamp, "alive", ex=8640)
     return
+
+
+@app.post("/challenge/status")
+async def challenge_status(request: Request):
+    try:
+        data = await request.json()
+        challenge_id = data.get("challenge_id")
+    except:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+    if not challenge_id:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+    if not redis:
+        return JSONResponse(status_code=409, content={"message": "Conflict"})
+    query_string = str(challenge_id + "_status")
+    status = redis.get(query_string)
+    if status:
+        if status == b"success":
+            return JSONResponse(status_code=200, content={"message": "success"})
+        elif status == b"fail":
+            return JSONResponse(status_code=200, content={"message": "fail"})
+        elif status == b"pending":
+            return JSONResponse(status_code=200, content={"message": "pending"})
+        elif status == b"processing":
+            return JSONResponse(status_code=200, content={"message": "processing"})
+        else:
+            return JSONResponse(status_code=200, content={"message": "unknown"})
+    else:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
 
 
 def run_cron():

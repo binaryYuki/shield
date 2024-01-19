@@ -22,6 +22,9 @@ app = FastAPI()
 
 redis_url = env.get("REDIS_URL")
 
+redis = rd.Redis(host="redis-15167.c282.east-us-mz.azure.cloud.redislabs.com", port=15167,
+                 password="CViHfV4kVH6O0yP35DUayHos5xbSVx0b")
+
 
 @app.middleware("http")
 async def check_header_timestamp(request: Request, call_next):
@@ -48,17 +51,15 @@ async def check_header_timestamp(request: Request, call_next):
     return await call_next(request)
 
 
-try:
-    RedisClient.from_url(redis_url)
-except ConnectionError:
-    redis = None
-    print("Redis is not connected")
-else:
-    RedisClient.from_url(redis_url)
-    print("Redis is connected")
-
-redis = rd.Redis(host="redis-15167.c282.east-us-mz.azure.cloud.redislabs.com", port=15167,
-                 password="CViHfV4kVH6O0yP35DUayHos5xbSVx0b")
+@app.middleware("http")
+async def print_request(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    end_time = time.time()
+    response.headers["X-Timestamp"] = str(int((end_time - start_time) * 1000))
+    print(request.url.path)
+    print(response)
+    return response
 
 
 @app.get("/")
@@ -83,6 +84,7 @@ def test(request: Request):
     }
     try:
         r = httpx.post(url=f"{request.base_url}challenge/request", json=payload, headers=headers)
+        print(r.json())
     except Exception as e:
         return JSONResponse(status_code=500, content={"message": str(e)})
     return RedirectResponse(url=f"{request.base_url}challenge/process?challenge_id={r.json()['challenge_id']}",

@@ -72,7 +72,7 @@ def read_root(request: Request):
 
 
 @app.get("/test")
-def test():
+def test(request: Request):
     payload = {
         "redirect_url": "baidu.com",
         "code": str(999),
@@ -81,8 +81,12 @@ def test():
     headers = {
         "X-Timestamp": str(int(time.time()))
     }
-    r = httpx.post("http://127.0.0.1:8000/challenge/request", json=payload, headers=headers)
-    return RedirectResponse(url="/challenge/process?challenge_id=" + r.json().get("challenge_id"))
+    try:
+        r = httpx.post(url=f"{request.base_url}challenge/request", json=payload, headers=headers)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"message": str(e)})
+    return RedirectResponse(url=f"{request.base_url}challenge/process?challenge_id={r.json()['challenge_id']}",
+                            headers=headers, status_code=302)
 
 
 @app.get("/static/{path}")
@@ -161,7 +165,7 @@ async def challenge(request: Request):
     reason = data.get("reason")
     return HTMLResponse(
         content=open(html, "r").read().replace("{{ error_code }}", str(code)).replace("{{ error_reason }}",
-                                                                                 str(reason)), status_code=202)
+                                                                                      str(reason)), status_code=202)
 
 
 @app.get("/challenge/request/get_url")

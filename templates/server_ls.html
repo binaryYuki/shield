@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="utf-8">
+    <title>服务器状态 -免登录跳转</title>
+    <style>
+        body {
+            font-family: Arial,serif;
+            background-color: pink;
+            text-align: center;
+        }
+
+        .server {
+            margin: 20px auto;
+            padding: 10px;
+            border: 1px solid;
+            width: 200px;
+        }
+
+        .server a {
+            text-decoration: none;
+            color: black;
+            display: block;
+            height: 100%;
+        }
+
+        .server img {
+            width: 40%;
+            height: auto;
+        }
+    </style>
+    <script>
+        var serverData = [
+            { name: "gptac_node1", status: "Loading...", link: "https://ac.tzpro.xyz/", img: "https://status.tzpro.xyz/api/badge/2/status" },
+            { name: "gptac_node2", status: "Loading...", link: "http://ac1.tzpro.xyz", img: "https://status.tzpro.xyz/api/badge/3/status" },
+            { name: "gptac_node3", status: "Loading...", link: "http://ac2.tzpro.xyz", img: "https://status.tzpro.xyz/api/badge/4/status" },
+        ];
+
+        function updateServerStatus() {
+            serverData.forEach(function (server) {
+                var xhr = new XMLHttpRequest();
+                xhr.open("GET", server.img);
+                xhr.onload = function () {
+                    server.status = xhr.status === 200 ? "Online" : "Offline";
+                };
+                xhr.onerror = function () {
+                    server.status = "Offline";
+                };
+                xhr.send();
+            });
+        }
+
+        function handleServerClick(server) {
+            fetch('http://0.0.0.0:8000/api/v1/gptac/jump', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Timestamp': Date.now(),
+                },
+                body: JSON.stringify({
+                    "server": server
+                })
+            }).then(response => {
+                if (response.status === 201) {
+                    return response.json();
+                } else {
+                    throw new Error('Something went wrong!');
+                }
+            }).then(data => {
+                if (data.msg === "ok") {
+                    console.log(data.url);
+                    window.location.href = data.url; // change this line
+                } else {
+                    throw new Error('server error!');
+                }
+            }).catch(error => {
+                alert(`Error: ${error.message}`);
+            });
+        }
+
+        function renderServers() {
+            var serversContainer = document.getElementById("servers");
+            serversContainer.innerHTML = "";
+
+            serverData.forEach(function (server) {
+                var serverDiv = document.createElement("div");
+                serverDiv.className = "server";
+                serverDiv.innerHTML = `
+            <a href="#" onClick="handleServerClick(\'${server.name}\')">
+              <img src="${server.img}">
+              <h2>${server.name}</h2>
+              <p>${server.status}</p>
+            </a>`;
+                serversContainer.appendChild(serverDiv);
+            });
+        }
+
+        setInterval(function () {
+            renderServers();
+            // }, 30000);   // 30s 这里是每30秒刷新一次
+            // 前两次每 4s 刷新一次，后面每 30s 刷新一次
+        }, 2000);
+
+        setInterval(function () {
+            updateServerStatus();
+        }, 4000);// 4s
+    </script>
+</head>
+
+<body>
+    <h1>Available server list</h1>
+    <h2>点击服务器名称即可跳转</h2>
+    <h3>欢迎👏 {{ username }}} </h3>
+    <div id="servers"></div>
+    <script>
+        renderServers();
+    </script>
+</body>
+
+</html>

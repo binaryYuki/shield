@@ -1,7 +1,9 @@
 import os
+import sys
 import time
 from multiprocessing import Pool
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse, Response, HTMLResponse
@@ -13,6 +15,9 @@ import dotenv
 import httpx
 import uuid
 import json
+import contextlib
+
+from starlette.applications import Starlette
 
 dotenv.load_dotenv()
 
@@ -22,14 +27,25 @@ app = FastAPI()
 
 redis_url = env.get("REDIS_URL")
 
-redis = rd.Redis(host="redis-15167.c282.east-us-mz.azure.cloud.redislabs.com", port=15167,
-                 password="CViHfV4kVH6O0yP35DUayHos5xbSVx0b")
+try:
+    redis = rd.Redis(host="redis-15167.c282.east-us-mz.azure.cloud.redislabs.com", port=15167,
+                     password="CViHfV4kVH6O0yP35DUayHos5xbSVx0b")
+except ConnectionError:
+    print("Redis Connection Error")
+    redis = None
+    sys.exit("Redis Connection Error")
+except Exception as e:
+    print(e)
+    sys.exit(str(e))
 
 
 @app.middleware("http")
 async def check_header_timestamp(request: Request, call_next):
     if (request.url.path == "/" or request.url.path.find("/static") != -1 or request.url.path == "/test" or
             request.url.path == "/favicon.ico"):
+        return await call_next(request)
+    # 通配/gptac/pass/*
+    if request.url.path.startswith("/gptac/pass"):
         return await call_next(request)
     if request.url.path == "/challenge/process" and request.method == "GET":
         if redis.get(request.query_params.get("challenge_id")):
@@ -43,52 +59,34 @@ async def check_header_timestamp(request: Request, call_next):
             return JSONResponse(status_code=404, content={"message": "Not Found"})
     timestamp = request.headers.get("X-Timestamp")
     if not timestamp:
-        return JSONResponse(status_code=403, content={"message": "Forbidden"})
+        return JSONResponse(status_code=403, content={"message": "Expired"})
     timestamp = int(timestamp)
     now = int(time.time())
     if now - timestamp > 300:
+        print(int(time.time()))
         return JSONResponse(status_code=403, content={"message": "Forbidden"})
     return await call_next(request)
 
 
-@app.middleware("http")
-async def print_request(request: Request, call_next):
-    start_time = time.time()
-    response = await call_next(request)
-    end_time = time.time()
-    response.headers["X-Timestamp"] = str(int((end_time - start_time) * 1000))
-    print(request.url.path)
-    print(response)
-    return response
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["X-Timestamp"]
+)
 
 
 @app.get("/")
 def read_root(request: Request):
-    return {
+    json = {
         "service": "running",
         "running_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()),
         "running_on": "Binary-Yuki's Magic Server3 at Azure in East US",
         "your_ip": request.client.host
     }
-
-
-@app.get("/test")
-def test(request: Request):
-    payload = {
-        "redirect_url": "baidu.com",
-        "code": str(999),
-        "reason": "you are entering a test page"
-    }
-    headers = {
-        "X-Timestamp": str(int(time.time()))
-    }
-    try:
-        r = httpx.post(url=f"{request.base_url}challenge/request", json=payload, headers=headers)
-        print(r.json())
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"message": str(e)})
-    return RedirectResponse(url=f"{request.base_url}challenge/process?challenge_id={r.json()['challenge_id']}",
-                            headers=headers, status_code=302)
+    html = os.path.join(os.path.dirname(__file__), "templates", "status.html")
+    return HTMLResponse(content=open(html, "r").read().replace("{{ json}}", str(json)), status_code=200)
 
 
 @app.get("/static/{path}")
@@ -255,6 +253,65 @@ async def get_docs():
     return JSONResponse(status_code=201, content={"message": "Not Found"})
 
 
+@app.post("/api/v1/gptac/jump")
+async def jump(request: Request):
+    data = await request.json()
+    server = data.get("server")
+    if not server:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+    try:
+        # 检查这个 server 的格式是否符合 gptac_node* 的格式
+        if not server.startswith("gptac_node"):
+            return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+        # 解析 server 的数字
+        server = server.replace("gptac_node", "")
+        server = int(server)
+        server_url = f"https://ac{server}.tzpro.xyz"
+        # 检查这个 server 是否存在
+        async with httpx.AsyncClient() as client:
+            response = await client.get(server_url)
+            if response.status_code != 200:
+                return JSONResponse(status_code=404, content={"msg": "服务器不在线！"})
+            else:
+                async with httpx.AsyncClient() as client2:
+                    headers = {
+                        "Accept": "application/json"
+                    }
+                    # data是 form-data
+                    data = {'username': 'fjwj', 'password': 'bDyHZccT'}
+                    response = await client2.post(server_url + "/login", headers=headers, data=data)
+                    if response.status_code != 200:
+                        return JSONResponse(status_code=404, content={"msg": response.text})
+                    else:
+                        cookies = response.headers.get("Set-Cookie")
+                        cookies = cookies.split(";")[0]
+                        headers = {
+                            "Accept": "application/json",
+                            "Cookie": cookies
+                        }
+                        return JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
+                                            headers=headers)
+
+    except ValueError:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+
+
+@app.get("/gptac/pass")
+async def get_pass(request: Request):
+    username = request.query_params.get("username")
+    if not username:
+        return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
+    user = ["skg", "hjt", "htz", "dxr", "mry"]
+    if username not in user:
+        print(username)
+        return JSONResponse(status_code=404, content={"message": "Not Found", "username": username})
+    try:
+        html = os.path.join(os.path.dirname(__file__), "templates", "server_ls.html")
+        return HTMLResponse(content=open(html, "r").read().replace("{{ username }}", str(username)), status_code=200)
+    except:
+        return JSONResponse(status_code=404, content={"message": "Not Found"})
+
+
 # 自定义500error
 @app.exception_handler(Exception)
 async def error_handler(request: Request, exc: Exception):
@@ -264,7 +321,7 @@ async def error_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     p = Pool(4)
-    p.apply_async(uvicorn.run(app, host="0.0.0.0", port=8000))
+    p.apply_async(uvicorn.run(app, host="0.0.0.0", port=8000, lifespan="auto", log_level="info"))
     p.apply_async(print(run_cron()))
     p.close()
     p.join()

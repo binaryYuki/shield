@@ -37,7 +37,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 redis_url = env.get("REDIS_URL")
 
 try:
@@ -270,7 +269,14 @@ async def jump(request: Request):
         # 解析 server 的数字
         server = server.replace("gptac_node", "")
         server = int(server)
-        server_url = f"https://ac{server}.tzpro.xyz"
+        if server ==1:
+            server_url = "https://ac.tzpro.xyz"
+        elif server == 2:
+            server_url = "https://ac1.tzpro.xyz"
+        elif server == 3:
+            server_url = "https://ac2.tzpro.xyz"
+        else:
+            server_url = f"https://ac{server-1}.tzpro.xyz"
         # 检查这个 server 是否存在
         async with httpx.AsyncClient() as client:
             response = await client.get(server_url)

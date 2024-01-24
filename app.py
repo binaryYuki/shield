@@ -22,6 +22,22 @@ env = dotenv.dotenv_values()
 
 app = FastAPI()
 
+origins = [
+    "http://localhost",
+    "http://localhost:8000",
+    "https://challenge.tzpro.xyz",
+    "https://challenge1.tzpro.xyz"
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 redis_url = env.get("REDIS_URL")
 
 try:

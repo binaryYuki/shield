@@ -65,10 +65,6 @@ async def check_header_timestamp(request: Request, call_next):
     return await call_next(request)
 
 
-app.add_middleware(CORSMiddleware, allow_origins=["*.tzpro.xyz", "localhost"], allow_credentials=True,
-                   allow_methods=["*"], allow_headers=["*"])
-
-
 @app.get("/")
 def read_root(request: Request):
     json = {

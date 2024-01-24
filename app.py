@@ -270,7 +270,6 @@ async def jump(request: Request):
                     }
                     # data是 form-data
                     data = {'username': 'fjwj', 'password': 'bDyHZccT'}
-
                     headers = {
                         "Accept": "application/json"
                     }
@@ -280,23 +279,16 @@ async def jump(request: Request):
                     else:
                         res = JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
                                            headers=headers)
-                        cookies = response.headers.get("Set-Cookie")
                         try:
-                            cookies = cookies.split(";")[0]
-                        except Exception as e:
-                            print(e)
-                            cookies = cookies
-                        # if start with "access-token=":
-                        if str(cookies).startswith('"' + "access-token="):
-                            try:
-                                cookies = cookies.replace('"' + "access-token=", "")
-                                cookies = cookies.replace('"', "")
-                            except Exception as e:
-                                pass
-                        res.set_cookie(key="access-token", value=cookies, domain='tzpro.xyz')
-
-                        return res
-
+                            cookies = response.headers.get("Set-Cookie")
+                            cookie = response.headers.get("Set-Cookie")
+                            cookie = cookie.split(";")[0]
+                            cookie = cookie.replace("access-token=", "")
+                            cookies = cookie.replace('"', "")
+                            res.set_cookie(key="access-token", value=cookies, domain='tzpro.xyz')
+                            return res
+                        except:
+                            return JSONResponse(status_code=404, content={"msg": "cookie获取失败"})
     except ValueError:
         return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
 

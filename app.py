@@ -279,18 +279,25 @@ async def jump(request: Request):
                     }
                     # data是 form-data
                     data = {'username': 'fjwj', 'password': 'bDyHZccT'}
+
+                    headers = {
+                        "Accept": "application/json"
+                    }
                     response = await client2.post(server_url + "/login", headers=headers, data=data)
                     if response.status_code != 200:
                         return JSONResponse(status_code=404, content={"msg": response.text})
                     else:
-                        cookies = response.headers.get("Set-Cookie")
-                        cookies = cookies.split(";")[0]
-                        headers = {
-                            "Accept": "application/json",
-                            "Cookie": cookies
-                        }
-                        return JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
+                        res =JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
                                             headers=headers)
+                        cookies = response.headers.get("Set-Cookie")
+                        try:
+                            cookies = cookies.split(";")[0]
+                        except Exception as e:
+                            print(e)
+                            cookies = cookies
+                        res.set_cookie(key="access-token", value=cookies, domain='tzpro.xyz')
+
+                        return res
 
     except ValueError:
         return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})

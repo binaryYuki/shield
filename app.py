@@ -15,9 +15,6 @@ import dotenv
 import httpx
 import uuid
 import json
-import contextlib
-
-from starlette.applications import Starlette
 
 dotenv.load_dotenv()
 
@@ -68,13 +65,7 @@ async def check_header_timestamp(request: Request, call_next):
     return await call_next(request)
 
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["X-Timestamp"]
-)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
 @app.get("/")
@@ -287,14 +278,21 @@ async def jump(request: Request):
                     if response.status_code != 200:
                         return JSONResponse(status_code=404, content={"msg": response.text})
                     else:
-                        res =JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
-                                            headers=headers)
+                        res = JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
+                                           headers=headers)
                         cookies = response.headers.get("Set-Cookie")
                         try:
                             cookies = cookies.split(";")[0]
                         except Exception as e:
                             print(e)
                             cookies = cookies
+                        # if start with "access-token=":
+                        if str(cookies).startswith('"' + "access-token="):
+                            try:
+                                cookies = cookies.replace('"' + "access-token=", "")
+                                cookies = cookies.replace('"', "")
+                            except Exception as e:
+                                pass
                         res.set_cookie(key="access-token", value=cookies, domain='tzpro.xyz')
 
                         return res

@@ -372,10 +372,9 @@ async def jump(request: Request):
         # 检查这个 server 是否存在
         async with httpx.AsyncClient() as client:
             response = await client.get(server_url)
-            print(server_url)
             if response.status_code != 200:
-                print(response.text)
-                return JSONResponse(status_code=404, content={"msg": "服务器不在线！"})
+                return JSONResponse(status_code=404, content={"msg": "服务器不在线！", "url": server_url,
+                                                              "code": response.status_code})
             else:
                 async with httpx.AsyncClient() as client2:
                     # data是 form-data
@@ -383,7 +382,7 @@ async def jump(request: Request):
                     data = json.loads(data)
                     username = data.get("username")
                     password = data.get("password")
-                    data = {'username': username , 'password': password}
+                    data = {'username': username, 'password': password}
                     print(data)
                     headers = {
                         "Accept": "application/json"

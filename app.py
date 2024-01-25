@@ -435,7 +435,7 @@ def get_base_url(request: Request):
 @app.exception_handler(Exception)
 async def error_handler(request: Request, exc: Exception):
     html = os.path.join(os.path.dirname(__file__), "templates", "challenge.html")
-    return JSONResponse(status_code=400, content={"message": "param error"})
+    return JSONResponse(status_code=400, content={"message": "param error", "error": str(exc)})
 
 
 if __name__ == "__main__":

@@ -372,8 +372,8 @@ async def jump(request: Request):
         # 检查这个 server 是否存在
         async with httpx.AsyncClient() as client:
             response = await client.get(server_url)
-            if response.status_code != 200:
-                return JSONResponse(status_code=404, content={"msg": "服务器不在线！", "url": server_url,
+            if response.status_code != 403:
+                return JSONResponse(status_code=400, content={"msg": "服务器不在线！", "url": server_url,
                                                               "code": response.status_code})
             else:
                 async with httpx.AsyncClient() as client2:

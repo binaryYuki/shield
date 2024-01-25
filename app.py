@@ -373,7 +373,7 @@ async def jump(request: Request):
         async with httpx.AsyncClient() as client:
             response = await client.get(server_url)
             if response.status_code != 403:
-                return JSONResponse(status_code=400, content={"msg": "服务器不在线！", "url": server_url,
+                return JSONResponse(status_code=408, content={"msg": "服务器不在线！", "url": server_url,
                                                               "code": response.status_code})
             else:
                 async with httpx.AsyncClient() as client2:

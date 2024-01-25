@@ -360,6 +360,7 @@ async def jump(request: Request):
         # 解析 server 的数字
         server = server.replace("gptac_node", "")
         server = int(server)
+        print(server)
         if server == 1:
             return JSONResponse(status_code=404, content={"msg": "主集群暂不支持免密登录！"})
         elif server == 2:
@@ -367,19 +368,22 @@ async def jump(request: Request):
         elif server == 3:
             server_url = "https://ac2.tzpro.xyz"
         else:
-            server_url = f"https://ac{server - 1}.tzpro.xyz"
+            server_url = f"https://ac{int(server) - 1}.tzpro.xyz"
         # 检查这个 server 是否存在
         async with httpx.AsyncClient() as client:
             response = await client.get(server_url)
+            print(server_url)
             if response.status_code != 200:
+                print(response.text)
                 return JSONResponse(status_code=404, content={"msg": "服务器不在线！"})
             else:
                 async with httpx.AsyncClient() as client2:
-                    headers = {
-                        "Accept": "application/json"
-                    }
                     # data是 form-data
                     data = check_user_available()
+                    data = json.loads(data)
+                    username = data.get("username")
+                    password = data.get("password")
+                    data = {'username': username , 'password': password}
                     print(data)
                     headers = {
                         "Accept": "application/json"

@@ -7,19 +7,23 @@ import dotenv
 import redis
 
 # 加载环境变量
-env = dotenv.dotenv_values()
+env = dotenv.load_dotenv()
 
+print(os.environ.get("REDIS_HOST"))
+print(os.environ.get("REDIS_PORT"))
+print(os.environ.get("REDIS_PASSWD"))
 # 连接 redis
-redis = redis.Redis(host=env.get("REDIS_HOST"), port=env.get("REDIS_PORT"), db=env.get("REDIS_DB"))
+redis = redis.Redis(host=os.environ.get("REDIS_HOST"), port=(os.environ.get("REDIS_PORT")),
+                    password=os.environ.get("REDIS_PASSWD"), decode_responses=True)
 
 
 # 初始化数据
-def pre_process():
+def pre_process(redis=redis):
     # 初始化redis 清空所有数据
     redis.flushall()
     gptac_user = ""
     try:
-        gptac_user = env.get("GPTAC_USER")
+        gptac_user = os.environ.get("GPTAC_USER")
     except Exception as e:
         print(e)
         sys.exit(str(e))
@@ -58,4 +62,4 @@ def pre_process():
 
 
 if __name__ == '__main__':
-    pre_process()
+    pre_process(redis)

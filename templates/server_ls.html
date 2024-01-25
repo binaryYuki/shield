@@ -51,9 +51,21 @@
             });
         }
 
+
+        function getBaseUrl() {
+            var isHttps = 'https:' === document.location.protocol;
+            var url = window.location.host;
+            if (isHttps) {
+                url = 'https://' + url;
+            } else {
+                url = 'http://' + url;
+            }
+            return url;
+        }
+
         function handleServerClick(server) {
             // todo: 这里需要修改
-            fetch('https://challenge1.tzpro.xyz/api/v1/gptac/jump', {
+            fetch(getBaseUrl() + '/api/v1/gptac/jump', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',

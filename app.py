@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 import time
 from multiprocessing import Pool
@@ -7,7 +8,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse
 from starlette.responses import RedirectResponse, Response, HTMLResponse
-from redis import Redis as RedisClient
 import redis as rd
 from redis.exceptions import ConnectionError
 import uvicorn
@@ -15,6 +15,7 @@ import dotenv
 import httpx
 import uuid
 import json
+import hashlib
 
 dotenv.load_dotenv()
 
@@ -26,7 +27,7 @@ origins = [
     "http://localhost",
     "http://localhost:8000",
     "https://challenge.tzpro.xyz",
-    "https://challenge1.tzpro.xyz"
+    os.environ.get("BASE_URL"),
 ]
 
 app.add_middleware(
@@ -36,12 +37,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-redis_url = env.get("REDIS_URL")
-
+host = env.get("REDIS_HOST")
+port = env.get("REDIS_PORT")
+passwd = env.get("REDIS_PASSWD")
 try:
-    redis = rd.Redis(host="redis-15167.c282.east-us-mz.azure.cloud.redislabs.com", port=15167,
-                     password="CViHfV4kVH6O0yP35DUayHos5xbSVx0b")
+    redis = rd.Redis(host=host, port=port, password=passwd, decode_responses=True)
 except ConnectionError:
     print("Redis Connection Error")
     redis = None
@@ -49,6 +49,49 @@ except ConnectionError:
 except Exception as e:
     print(e)
     sys.exit(str(e))
+
+
+def pre_process():
+    # 初始化redis 清空所有数据
+    redis.flushall()
+
+    try:
+        gptac_user = env.get("GPTAC_USER")
+    except Exception as e:
+        print(e)
+        sys.exit(str(e))
+    try:
+        redis.flushall()
+        # 数据列表
+        data_str = gptac_user
+        data = re.findall(r'\("(.*?)", "(.*?)"\)', data_str)
+        user_list = []
+        # 创建一个本地文件，用于存储sha256值
+        if os.path.exists("sha256.txt"):
+            os.remove("sha256.txt")
+        # 遍历数据
+        for i, (account, password) in enumerate(data, 1):
+            # 生成账户名和密码的散列值
+            sha256_result = hashlib.sha256((account + password).encode()).hexdigest()
+            # 创建字典存储账户名和密码
+            account_dict = {"username": account, "password": password}
+            # 将字典转换为 JSON 格式
+            account_json = json.dumps(account_dict)
+            # 将数据存储在 redis 中
+            print(f"正在存储第{i}条数据", "用户名", account, "特征值", sha256_result)
+            if redis.get(sha256_result):
+                print(f"sha254: {sha256_result} 已存在")
+                continue
+            redis.set(sha256_result, account_json, ex=86400)
+            user_list.append(account)
+            # 有个 bug：文件会被覆盖，导致只能存储最后一条数据
+            with open("sha256.txt", "a") as f:
+                f.write(sha256_result + "\n")
+    except Exception as e:
+        print(e)
+        sys.exit(str(e))
+    print("初始化完成")
+    return
 
 
 @app.middleware("http")
@@ -133,7 +176,9 @@ async def apply_challenge(request: Request):
     # 获取ip
     ip = request.client.host
     # challenge_id取ip的hash值
-    challenge_id = str(uuid.uuid3(uuid.NAMESPACE_DNS, ip))
+    i = str(uuid.uuid3(uuid.NAMESPACE_DNS, ip))
+    f = str(uuid.uuid3(uuid.NAMESPACE_DNS, redirect_url))
+    challenge_id = str(uuid.uuid3(uuid.NAMESPACE_DNS, i + f))
     # 如果这个link没有http或者https开头，就加上https
     if not redirect_url.startswith("http"):
         redirect_url = "https://" + redirect_url
@@ -176,8 +221,7 @@ def get_url(request: Request):
     challenge_id = request.query_params.get("challenge_id")
     data = redis.get(challenge_id)
     data = json.loads(data)
-    redirect_url = data.get("redirect_url")
-    redirect_url = str(redirect_url).replace("b'", "").replace("'", "")
+    redirect_url = data["redirect_url"]
     if redirect_url:
         redis.delete(challenge_id)
         redis.set(challenge_id + "_status", "success", ex=1800)
@@ -215,16 +259,16 @@ async def challenge_status(request: Request):
     query_string = str(challenge_id + "_status")
     status = redis.get(query_string)
     if status:
-        if status == b"success":
-            return JSONResponse(status_code=200, content={"message": "success"})
-        elif status == b"fail":
-            return JSONResponse(status_code=200, content={"message": "fail"})
-        elif status == b"pending":
-            return JSONResponse(status_code=200, content={"message": "pending"})
-        elif status == b"processing":
-            return JSONResponse(status_code=200, content={"message": "processing"})
+        if status == "success":
+            return JSONResponse(status_code=200, content={"status": "success"})
+        elif status == "fail":
+            return JSONResponse(status_code=200, content={"status": "fail"})
+        elif status == "pending":
+            return JSONResponse(status_code=200, content={"status": "pending"})
+        elif status == "processing":
+            return JSONResponse(status_code=200, content={"status": "processing"})
         else:
-            return JSONResponse(status_code=200, content={"message": "unknown"})
+            return JSONResponse(status_code=200, content={"status": status})
     else:
         return JSONResponse(status_code=406, content={"message": "Unacceptable Param"})
 
@@ -254,6 +298,53 @@ async def get_docs():
 @app.get("/redoc")
 async def get_docs():
     return JSONResponse(status_code=201, content={"message": "Not Found"})
+
+
+# 一个监视器 检查 check_user_available 在3分钟内运行的次数
+# 如果超过10次 就返回 429
+# 如果没有超过10次 就返回 200
+class Monitor:
+    # wrapper
+    def __init__(self, func):
+        self.func = func
+        self.count = 0
+        self.timestamp = time.time()
+
+    def __call__(self, *args, **kwargs):
+        if time.time() - self.timestamp > 180:
+            self.count = 0
+            self.timestamp = time.time()
+        if self.count > 10:
+            raise Exception("Too Many Requests")
+        else:
+            self.count += 1
+            return self.func(*args, **kwargs)
+
+
+@Monitor
+def check_user_available():
+    # 读取sha256.txt文件
+    with open("sha256.txt", "r") as f:
+        data = f.readlines()
+    # 随机取一行
+    import random
+    data = random.choice(data)
+    # 去除换行符
+    data = data.replace("\n", "")
+    # 验证这个值是不是 sha256
+    if len(data) != 64:
+        return check_user_available()
+    if redis.get(data + "_status"):
+        # 重新获取
+        return check_user_available()
+    # 从redis中获取这个值
+    json_info = redis.get(data)
+    if not json_info:
+        return check_user_available()
+    # 从redis中添加 1 h 占用时间
+    redis.set(data + "_status", "pending", ex=3600)
+    # 返回用户名和密码
+    return json_info
 
 
 @app.post("/api/v1/gptac/jump")
@@ -288,7 +379,8 @@ async def jump(request: Request):
                         "Accept": "application/json"
                     }
                     # data是 form-data
-                    data = {'username': 'fjwj', 'password': 'bDyHZccT'}
+                    data = check_user_available()
+                    print(data)
                     headers = {
                         "Accept": "application/json"
                     }
@@ -299,7 +391,6 @@ async def jump(request: Request):
                         res = JSONResponse(status_code=201, content={"url": server_url, "msg": "ok"},
                                            headers=headers)
                         try:
-                            cookies = response.headers.get("Set-Cookie")
                             cookie = response.headers.get("Set-Cookie")
                             cookie = cookie.split(";")[0]
                             cookie = cookie.replace("access-token=", "")
@@ -324,8 +415,17 @@ async def get_pass(request: Request):
     try:
         html = os.path.join(os.path.dirname(__file__), "templates", "server_ls.html")
         return HTMLResponse(content=open(html, "r").read().replace("{{ username }}", str(username)), status_code=200)
-    except:
+    except Exception as e:
         return JSONResponse(status_code=404, content={"message": "Not Found"})
+
+
+@app.post("/get_base_url")
+def get_base_url(request: Request):
+    try:
+        os.environ.get("BASE_URL")
+    except Exception as e:
+        return JSONResponse(status_code=404, content={"message": "Not Found", "error": str(e)})
+    return JSONResponse(status_code=200, content={"message": os.environ.get("BASE_URL")})
 
 
 # 自定义500error
@@ -337,6 +437,7 @@ async def error_handler(request: Request, exc: Exception):
 
 if __name__ == "__main__":
     p = Pool(4)
+    p.apply_async(pre_process)
     p.apply_async(uvicorn.run(app, host="0.0.0.0", port=8000, lifespan="auto", log_level="info"))
     p.apply_async(print(run_cron()))
     p.close()
